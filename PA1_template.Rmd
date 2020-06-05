@@ -1,25 +1,170 @@
----
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
----
+## Week 2 Assignment - Activity Monitoring
+
+This assignment consists of a number of exercises to analyse activity data (steps taken) captured by a personal activity monitoring device.  Data was collected in five minute intervals during the months of October and November 2012.  The source data can be found at <https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip>.
+
+This document will outline the steps taken to analyse the data and highlight some of the more evident conclusions.
+
+1) First of all the libraries are loaded and the data is downloaded and unzipped (if this step has not already been undertaken):
+```{r load_data, echo = TRUE}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(chron)
+
+Sys.setenv(LANG = "en")
 
 
-## Loading and preprocessing the data
+fileURL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
 
+## Only download if not yet downloaded
+if (!file.exists("Activity_Monitoring.zip")){
+  print("Downloading...")
+  download.file(fileURL, destfile = "Activity_Monitoring.zip")  
+  dateDownloaded = date()
+  print(dateDownloaded)
+}
 
+## Only unzip if not yet unzipped
+if (!file.exists("activity.csv")){
+  print("Unzipping...")
+  unzip("Activity_Monitoring.zip")
+}
 
-## What is mean total number of steps taken per day?
+```
 
+2) Then the data is read into a dataset, and manipulated to create two grouped datasets which will be helpful to us later, the first is the number of steps per day, and the second is the number of steps per five-minute interval:
 
+```{r manipulate_data_1, echo = TRUE}
 
-## What is the average daily activity pattern?
+## Read the csv into a dataset
+activity_ds <- read.csv("activity.csv", stringsAsFactors = FALSE, na.strings = "NA")
 
+## Create datasets of number of steps grouped by date and then interval
+steps_day <- activity_ds %>% group_by(date) %>% summarise(steps = sum(steps))
+steps_interval <- activity_ds %>% group_by(interval) %>% summarise(steps = mean(steps, na.rm = TRUE))
 
+```
 
-## Imputing missing values
+3) Next we must answer the main questions, firstly, what is the mean total number of steps per day? We can see the breakdown in the following histogram:
 
+```{r histogram_steps, echo = TRUE}
+## Create the steps histogram
+hist(steps_day$steps,xlab = "Range of number of daily steps",ylim = c(0,30), main="Frequency of steps per day")
+```
 
+The mean number of steps per day is:
+```{r mean_steps, echo = TRUE}
+## Print the mean value
+print(mean(steps_day$steps, na.rm = TRUE))
+```
 
-## Are there differences in activity patterns between weekdays and weekends?
+And the median number of steps is:
+```{r median_steps, echo = TRUE}
+## Print the median value
+print(median(steps_day$steps, na.rm = TRUE))
+```
+
+4) Next, we can understand what is the average daily pattern, using the following time-series plot:
+```{r avg_daily_pattern, echo = TRUE}
+## Make the time series plot
+plot(steps_interval$interval, steps_interval$steps, type = "l", xlab = "", ylab = "Steps", main="Average daily steps per time interval")
+
+```
+
+Also, we can see that the most active average 5 minute period is 8:35 am:
+```{r most_active_avg, echo = TRUE}
+## Which is the most active average 5 minute period?
+max_interval <- filter(steps_interval, steps == max(steps_interval$steps))
+print(max_interval$interval)
+```
+
+5) The next step is to remove the missing values and to do some further analysis.  To do this, we must first duplicate the dataset, and calculate the number of missing rows:
+
+```{r duplicate_ds, echo = TRUE}
+
+## Create a duplicate dataset
+activity_ds2 <- activity_ds
+
+## Calculate how many rows have missing (NA) values
+rows_NA <- sum(rowSums(is.na(activity_ds2)))
+
+print(rows_NA)
+
+```
+
+Then, we replace the missing values with the average number of steps for each interval that has a missing value (this is our impute logic):
+
+```{r impute, echo = TRUE}
+
+## Replace the NA values with the average steps for that interval
+for(i in 1:nrow(activity_ds2)){
+  steps_var <- activity_ds2$steps[i]
+  if (is.na(steps_var)){
+    interval_var <- activity_ds2$interval[i]
+    new_ds <- filter(steps_interval,interval == interval_var)
+    av_steps <- round(new_ds$steps)
+    activity_ds2$steps[i] <- av_steps
+  }
+}
+```
+
+We then create datasets grouped by date and interval, for further processing and present them in graphical format:
+
+```{r manipulate_data_2, echo = TRUE}
+
+## Create second datasets of number of steps grouped by date and then interval
+steps_day2 <- activity_ds2 %>% group_by(date) %>% summarise(steps = sum(steps))
+steps_interval2 <- activity_ds2 %>% group_by(interval) %>% summarise(steps = mean(steps, na.rm = TRUE))
+
+## Create the second steps histogram
+hist(steps_day2$steps,xlab = "Range of number of daily steps",ylim = c(0,40), main="Frequency of steps per day")
+```
+
+The mean number of steps per day once the missing values have been removed is:
+```{r mean_steps2, echo = TRUE}
+## Print the mean value
+print(mean(steps_day2$steps, na.rm = TRUE))
+```
+
+And the median number of steps once the missing values have been removed is:
+```{r median_steps2, echo = TRUE}
+## Print the median value
+print(median(steps_day2$steps, na.rm = TRUE))
+```
+
+We can see that there is a small difference with respect to the data with NA values, but it is not particularly significant.
+
+6) Finally, we should determine whether there are differences in activity patterns between weekdays and weekends.  To start with, we complement the dataset with an additional variable, whether the date in each row is a weekday or a weekend:
+
+```{r weekday, echo = TRUE}
+## Label the weekday and weekend days
+activity_ds2 <- mutate(activity_ds2, day_type = ifelse(is.weekend(as.Date(date)),"Weekend","Weekday"))
+
+## Create datasets for avg steps grouped by weekday/weekend
+steps_interval_weekday <- activity_ds2 %>% filter(day_type == "Weekday") %>% group_by(interval) %>% summarise(steps = mean(steps, na.rm = TRUE))
+steps_interval_weekend <- activity_ds2 %>% filter(day_type == "Weekend") %>% group_by(interval) %>% summarise(steps = mean(steps, na.rm = TRUE))
+
+steps_interval_weekday <- mutate(steps_interval_weekday, day_type = "Weekday")
+steps_interval_weekend <- mutate(steps_interval_weekend, day_type = "Weekend")
+
+## And rejoin to create a single dataset
+consol_steps_interval <- rbind(steps_interval_weekday,steps_interval_weekend)
+
+```
+
+And then we can draw a comparative plot, to view the differences across the same time intervals:
+
+```{r weekday_plot, echo = TRUE}
+## Draw the comparative graphs (weekday vs weekend)
+g <- ggplot(consol_steps_interval, aes(interval, steps))
+g = g + geom_line(stat = "summary", fun=sum)
+g = g + facet_grid(day_type ~ .)
+g = g + theme(axis.text.x=element_text(size=10))
+g = g + xlab("Time of day")
+g = g + ylab("Number of steps")
+g = g + ggtitle("Average number of steps by interval")
+print(g)
+```
+
+Here we can see that weekdays have a clear peak in the mornings around rush hour, and a slightly smaller peak in the evening rush hour, with relatively little activity in between.  Weekends however tend to have a slightly more even spread throughout the day.
